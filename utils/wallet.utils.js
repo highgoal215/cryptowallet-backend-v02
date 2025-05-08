@@ -5,6 +5,8 @@ const bitcoin = require("bitcoinjs-lib");
 const ECPairFactory = require("ecpair").default;
 const ecc = require("tiny-secp256k1");
 const fs = require("fs");
+const {TronWeb} = require("tronweb");
+const crypto = require("crypto");
 
 const ECPair = ECPairFactory(ecc);
 const network = bitcoin.networks.testnet; // Otherwise, bitcoin = mainnet and regnet = local
@@ -54,22 +56,29 @@ exports.generateBitcoinWallet = async() => {
 
 ///TronWallet
 exports.generateTronWallet = async() => {
-    console.log("--------->Hey");
-    var crypto = require("crypto");
-    var privateKey = crypto.randomBytes(32).toString("hex");
-    console.log("Private Key", privateKey);
-    const HttpProvider = TronWeb.providers.HttpProvider;
-    const fullNode = new HttpProvider("https://api.trongrid.io");
-    const solidityNode = new HttpProvider("https://api.trongrid.io");
-    const eventServer = new HttpProvider("https://api.trongrid.io");
-    const tronWeb = new TronWeb(fullNode, solidityNode, eventServer, privateKey);
+    try {
+        const privateKey = crypto.randomBytes(32).toString("hex");
+        console.log("privateKey", privateKey);
+        const fullNode = "https://api.shasta.trongrid.io"; ///shasta testnet
+        const solidityNode = "https://api.shasta.trongrid.io"; ///shasta testnet
+        const eventServer = "https://api.shasta.trongrid.io"; ///shasta testnet
+        
+        const tronWeb = new TronWeb({
+            fullHost: fullNode,
+            eventServer: eventServer,
+            privateKey: privateKey
+          }
+        )
 
-    const newWallet = await tronWeb.createAccount();
-    console.log("---------->", newWallet);
-    return {
-        address: newWallet.address.base58,
-        privateKey: newWallet.privateKey,
-    };
+        const newWallet = await tronWeb.createAccount();
+        return {
+            address: newWallet.address.base58,
+            privateKey: newWallet.privateKey,
+        };
+    } catch (error) {
+        console.error("Error generating Tron wallet:", error);
+        throw new Error("Failed to generate Tron wallet: " + error.message);
+    }
 };
 ///TronWallet
 // exports.generateTronWallet = async() => {
