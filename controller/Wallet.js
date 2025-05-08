@@ -9,6 +9,7 @@ const {
     generateTronWallet,
 } = require("../utils/wallet.utils");
 const ethers = require("ethers");
+const { TronWeb } = require("tronweb");
 
 // Encryption key (store this securely in environment variables)
 const ENCRYPTION_KEY =
@@ -45,6 +46,19 @@ function decrypt(text) {
 exports.createWallet = async(req, res) => {
     const { addressType, accountName } = req.body;
     try {
+        // Check if account name already exists for this user
+        const existingAccountName = await Wallet.findOne({
+            user: req.userId,
+            accountName: accountName
+        });
+        
+        if (existingAccountName) {
+            return res.status(400).json({
+                success: false,
+                message: "Account name already exists, use other name",
+            });
+        }
+
         let walletData;
 
         if (addressType === "ethereum") {
@@ -64,8 +78,7 @@ exports.createWallet = async(req, res) => {
             addressType,
             accountName,
             address: walletData.address,
-            // privateKey: walletData.privateKey, // Encrypt in production
-            privateKey: encryptedPrivateKey, // Encrypt in production
+            privateKey: encryptedPrivateKey,
             balance: 0,
             createdAt: new Date(),
         });
@@ -300,9 +313,63 @@ exports.importWalletFromPrivateKey = async(req, res) => {
             });
         }
 
-        const wallet = new ethers.Wallet(privateKey);
+        // Check if account name already exists for this user
+        const existingAccountName = await Wallet.findOne({
+            user: req.userId,
+            accountName: accountName
+        });
+        
+        if (existingAccountName) {
+            return res.status(400).json({
+                success: false,
+                message: "Account name already exists, use other name",
+            });
+        }
+
+        let walletAddress;
+        let balance = 0;
+
+        if (addressType === "ethereum") {
+            // Handle Ethereum wallet
+            const wallet = new ethers.Wallet(privateKey);
+            walletAddress = wallet.address;
+
+            // Create a provider to fetch the balance
+            const provider = new ethers.JsonRpcProvider(
+                `https://eth-sepolia.g.alchemy.com/v2/fDVyRKUELxC6pGpxxG2M7eVc7ErbTI4t`
+            );
+            // Fetch the wallet balance
+            const balanceInWei = await provider.getBalance(walletAddress);
+            balance = parseFloat(ethers.formatEther(balanceInWei));
+        } else if (addressType === "tron") {
+            // Handle Tron wallet
+            const fullNode = "https://api.shasta.trongrid.io"; // Shasta testnet
+            const solidityNode = "https://api.shasta.trongrid.io";
+            const eventServer = "https://api.shasta.trongrid.io";
+            
+            const tronWeb = new TronWeb({
+                fullHost: fullNode,
+                eventServer: eventServer,
+                privateKey: privateKey
+            });
+
+            // Get the Tron address from private key
+            const account = await tronWeb.createAccount();
+            walletAddress = account.address.base58;
+
+            // Get Tron balance
+            const balanceInSun = await tronWeb.trx.getBalance(walletAddress);
+            balance = balanceInSun / 1e6; // Convert from SUN to TRX (1 TRX = 1,000,000 SUN)
+        } else {
+            return res.status(400).json({
+                success: false,
+                message: "Unsupported wallet type. Only 'ethereum' and 'tron' are supported.",
+            });
+        }
+
+        // Check if wallet already exists
         const existingWallet = await Wallet.findOne({
-            address: wallet.address,
+            address: walletAddress,
             addressType,
         });
         if (existingWallet) {
@@ -311,24 +378,17 @@ exports.importWalletFromPrivateKey = async(req, res) => {
                 message: "Wallet already exists in the database",
             });
         }
-        // Create a provider to fetch the balance
-        const provider = new ethers.JsonRpcProvider(
-            `https://eth-sepolia.g.alchemy.com/v2/fDVyRKUELxC6pGpxxG2M7eVc7ErbTI4t`
-        );
-        // Fetch the wallet balance
-        const balanceInWei = await provider.getBalance(wallet.address);
-        const balanceInEther = parseFloat(ethers.formatEther(balanceInWei));
-        console.log("balanceInEther:", balanceInEther);
+
         const encryptedPrivateKey = encrypt(privateKey);
+        
         // Save the wallet in the database
         const newWallet = await Wallet.create({
-            user: req.userId, // Assuming `req.userId` contains the authenticated user's ID
+            user: req.userId,
             addressType,
             accountName,
-            address: wallet.address,
-            // privateKey: privateKey, // Encrypt this in production
-            privateKey: encryptedPrivateKey, // Encrypt this in production
-            balance: balanceInEther, // Default balance
+            address: walletAddress,
+            privateKey: encryptedPrivateKey,
+            balance: balance,
             createdAt: new Date(),
         });
 

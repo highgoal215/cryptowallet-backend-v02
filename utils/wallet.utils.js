@@ -20,6 +20,7 @@ exports.generatEthereWallet = async() => {
     );
     console.log("--------->", provider);
     const wallet = Wallet.createRandom(provider);
+    console.log("wallet privateKey", wallet.privateKey);
     return {
         address: wallet.address,
         privateKey: wallet.privateKey,
