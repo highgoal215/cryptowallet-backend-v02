@@ -1,7 +1,7 @@
 // import Wallet from '../models/wallet';
 // import { generateWallet, generateBitcoinWallet } from '../utils/wallet.utils.js';
 const crypto = require("crypto");
-const { transferEth, transferBtc } = require("../utils/wallet.utils");
+const { transferEth, transferBtc, transferTron } = require("../utils/wallet.utils");
 const Wallet = require("../models/wallet");
 const {
     generatEthereWallet,
@@ -294,6 +294,118 @@ exports.universalBtcTransfer = async(req, res) => {
         }
     } catch (error) {
         console.error("Error transferring BTC:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+            error: error.message
+        });
+    }
+};
+
+exports.universalTronTransfer = async(req, res) => {
+    console.log("++++++++++++>===========>universalTronTransfer:", req.body);
+    try {
+        const { fromAddress, toAddress, amount } = req.body;
+
+        // Validate inputs
+        if (!fromAddress || !toAddress || !amount) {
+            return res.status(400).json({
+                success: false,
+                message: "Missing required parameters: fromAddress, toAddress, or amount"
+            });
+        }
+
+        // Validate amount is a positive number
+        const amountNum = parseFloat(amount);
+        console.log("++++++++++++>===========>amountNum:", amountNum);
+        if (isNaN(amountNum) || amountNum <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Amount must be a positive number"
+            });
+        }
+
+        // Find sender's wallet
+        const senderWallet = await Wallet.findOne({ address: fromAddress });
+        console.log("++++++++++++>===========>senderWallet:", senderWallet);
+        if (!senderWallet) {
+            return res.status(400).json({
+                success: false,
+                message: "Sender wallet not found"
+            });
+        }
+        console.log("++++++++++++>===========>senderWallet:", senderWallet.privateKey);
+        // Decrypt private key
+        const senderPrivateKey = decrypt(senderWallet.privateKey);
+
+        // Perform the transfer
+        const result = await transferTron(senderPrivateKey, toAddress, amountNum);
+        console.log("++++++++++++>===========>result:", result);
+        if (result.success) {
+            // Update sender's wallet balance
+            const senderWallet = await Wallet.findOne({
+                address: result.fromAddress,
+                addressType: "tron"
+            });
+
+            if (senderWallet) {
+                // Initialize TronWeb to get updated balance
+                const fullNode = "https://api.shasta.trongrid.io";
+                const eventServer = "https://api.shasta.trongrid.io";
+                const tronWeb = new TronWeb({
+                    fullHost: fullNode,
+                    eventServer: eventServer
+                });
+
+                const currentBalance = await tronWeb.trx.getBalance(result.fromAddress);
+                senderWallet.balance = currentBalance / 1e6; // Convert from SUN to TRX
+                senderWallet.lastUpdated = new Date();
+                await senderWallet.save();
+            }
+
+            // Update receiver's wallet balance if it exists in our system
+            const receiverWallet = await Wallet.findOne({
+                address: result.toAddress,
+                addressType: "tron"
+            });
+
+            if (receiverWallet) {
+                // Initialize TronWeb to get updated balance
+                const fullNode = "https://api.shasta.trongrid.io";
+                const eventServer = "https://api.shasta.trongrid.io";
+                const tronWeb = new TronWeb({
+                    fullHost: fullNode,
+                    eventServer: eventServer
+                });
+
+                const currentBalance = await tronWeb.trx.getBalance(result.toAddress);
+                receiverWallet.balance = currentBalance / 1e6; // Convert from SUN to TRX
+                receiverWallet.lastUpdated = new Date();
+                await receiverWallet.save();
+            }
+
+            return res.status(200).json({
+                success: true,
+                message: "TRX transferred successfully",
+                transaction: {
+                    hash: result.transactionHash,
+                    fromAddress: result.fromAddress,
+                    toAddress: result.toAddress,
+                    amount: result.amount,
+                    fee: result.fee,
+                    totalCost: result.totalCost
+                }
+            });
+        } else {
+            return res.status(400).json({
+                success: false,
+                message: "Failed to transfer TRX",
+                error: result.error,
+                details: result.details
+            });
+        }
+    } catch (error) {
+        console.error("Error transferring TRX:", error);
         return res.status(500).json({
             success: false,
             message: "Internal server error",

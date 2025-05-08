@@ -4,6 +4,7 @@ const {
     createWallet,
     universalEthTransfer,
     universalBtcTransfer,
+    universalTronTransfer,
     importWalletFromPrivateKey,
     getAllWallets,
 } = require("../controller/Wallet");
@@ -15,8 +16,9 @@ router.post("/walletcreate", auth, createWallet);
 // Add the new transfer routes
 router.post("/transfer/eth", universalEthTransfer);
 router.post("/transfer/btc", universalBtcTransfer);
+router.post("/transfer/tron", universalTronTransfer);
 router.post("/importwallet", auth, importWalletFromPrivateKey);
-router.get("/getallwallets", auth, getAllWallets);
+router.get("/wallets", auth, getAllWallets);
 
 // //protected routes( middlewares )
 // router.post("/createwallet", auth, (req, res) => {

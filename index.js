@@ -24,7 +24,21 @@ app.use(
 const userRouter = require("./routes/user");
 const walletRouter = require("./routes/wallet");
 const synapseRoutes = require("./routes/bankconnection/synapse");
+const cron = require('node-cron');
+const { updateWalletBalances } = require('./utils/wallet.utils');
 // const transferRouter = require("./routes/transfer");
+
+// Schedule balance updates every 15 minutes instead of 5
+cron.schedule('*/15 * * * *', async () => {
+    console.log('Running scheduled wallet balance update...');
+    try {
+        await updateWalletBalances();
+        console.log('Wallet balance update completed successfully');
+    } catch (error) {
+        console.error('Error in scheduled wallet balance update:', error);
+    }
+});
+
 app.use("/api/", userRouter);
 app.use("/api/", walletRouter);
 // app.use("/api/", transferRouter);

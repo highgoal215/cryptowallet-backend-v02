@@ -389,3 +389,171 @@ exports.transferEth = async(SendPrivateKey, toAddress, amountInEther) => {
 //         throw new Error("Failed to fetch UTXOs");
 //     }
 // }
+
+// Add this helper function for retrying operations
+const retryOperation = async (operation, maxRetries = 3, delay = 1000) => {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await operation();
+        } catch (error) {
+            if (i === maxRetries - 1) throw error;
+            console.log(`Retry attempt ${i + 1} of ${maxRetries}`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+};
+
+// Update the updateWalletBalances function
+exports.updateWalletBalances = async () => {
+    try {
+        const Wallet = require('../models/wallet');
+        const ethers = require('ethers');
+        
+        // Get all wallets from database
+        const wallets = await Wallet.find();
+        
+        // Create provider with explicit network configuration and timeout
+        const provider = new ethers.JsonRpcProvider(
+            `https://eth-sepolia.g.alchemy.com/v2/fDVyRKUELxC6pGpxxG2M7eVc7ErbTI4t`,
+            {
+                name: "sepolia",
+                chainId: 11155111,
+                ensAddress: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e0e",
+            },
+            {
+                timeout: 30000, // 30 second timeout
+                retry: {
+                    retries: 3,
+                    interval: 1000
+                }
+            }
+        );
+
+        // Verify network connection first
+        try {
+            await retryOperation(async () => {
+                const network = await provider.getNetwork();
+                console.log(`Connected to network: ${network.name} (chainId: ${network.chainId})`);
+            });
+        } catch (error) {
+            console.error('Failed to connect to Ethereum network:', error);
+            return; // Exit if we can't connect to the network
+        }
+
+        // Update each wallet's balance
+        for (const wallet of wallets) {
+            if (wallet.addressType === 'ethereum') {
+                try {
+                    const balanceInEth = await retryOperation(async () => {
+                        const currentBalance = await provider.getBalance(wallet.address);
+                        return parseFloat(ethers.formatEther(currentBalance));
+                    });
+                    
+                    // Only update if balance has changed
+                    if (wallet.balance !== balanceInEth) {
+                        wallet.balance = balanceInEth;
+                        wallet.lastUpdated = new Date();
+                        await wallet.save();
+                        console.log(`Updated balance for wallet ${wallet.address}: ${balanceInEth} ETH`);
+                    }
+                } catch (error) {
+                    console.error(`Error updating balance for wallet ${wallet.address}:`, error);
+                    // Continue with next wallet instead of stopping the entire process
+                    continue;
+                }
+            }
+            // Add support for other wallet types here if needed
+        }
+    } catch (error) {
+        console.error('Error in updateWalletBalances:', error);
+    }
+};
+
+exports.transferTron = async (fromPrivateKey, toAddress, amountInTrx) => {
+    try {
+        // Initialize TronWeb with Shasta testnet
+        const fullNode = "https://api.shasta.trongrid.io";
+        const solidityNode = "https://api.shasta.trongrid.io";
+        const eventServer = "https://api.shasta.trongrid.io";
+        
+        const tronWeb = new TronWeb({
+            fullHost: fullNode,
+            eventServer: eventServer,
+            privateKey: fromPrivateKey
+        });
+
+        // Get sender's address
+        const fromAddress = tronWeb.address.fromPrivateKey(fromPrivateKey);
+        
+        // Get sender's current balance
+        const senderBalance = await tronWeb.trx.getBalance(fromAddress);
+        const senderBalanceInTrx = senderBalance / 1e6; // Convert from SUN to TRX
+
+        // Convert amount to SUN (1 TRX = 1,000,000 SUN)
+        const amountInSun = Math.floor(amountInTrx * 1e6);
+
+        // Check if sender has enough balance
+        if (senderBalance < amountInSun) {
+            return {
+                success: false,
+                error: "Insufficient balance",
+                details: {
+                    fromAddress,
+                    balance: senderBalanceInTrx,
+                    amountToSend: amountInTrx
+                }
+            };
+        }
+
+        // Create and send transaction
+        const transaction = await tronWeb.trx.sendTransaction(toAddress, amountInSun, fromPrivateKey);
+        
+        // Wait for transaction to be confirmed (with retries)
+        let receipt = null;
+        let retries = 0;
+        const maxRetries = 10;
+        const delay = 2000; // 2 seconds delay between retries
+
+        while (retries < maxRetries) {
+            try {
+                receipt = await tronWeb.trx.getTransaction(transaction.txid);
+                if (receipt) {
+                    break;
+                }
+            } catch (error) {
+                console.log(`Waiting for transaction confirmation... Attempt ${retries + 1}/${maxRetries}`);
+            }
+            await new Promise(resolve => setTimeout(resolve, delay));
+            retries++;
+        }
+
+        if (!receipt) {
+            return {
+                success: false,
+                error: "Transaction confirmation timeout",
+                details: {
+                    transactionId: transaction.txid,
+                    fromAddress,
+                    toAddress,
+                    amount: amountInTrx
+                }
+            };
+        }
+
+        return {
+            success: true,
+            transactionHash: transaction.txid,
+            fromAddress: fromAddress,
+            toAddress: toAddress,
+            amount: amountInTrx,
+            fee: 0.1, // Tron has a fixed fee of 0.1 TRX
+            totalCost: amountInTrx + 0.1
+        };
+    } catch (error) {
+        console.error("Error transferring TRX:", error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+};
