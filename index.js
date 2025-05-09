@@ -29,7 +29,6 @@ const { updateWalletBalances, setupBlockchainListeners } = require('./utils/wall
 const ethers = require('ethers');
 const { TronWeb } = require('tronweb');
 // const transferRouter = require("./routes/transfer");
-
 // Schedule balance updates every 2 minutes instead of 15
 cron.schedule('*/2 * * * *', async () => {
     console.log('Running scheduled wallet balance update...');
@@ -40,8 +39,7 @@ cron.schedule('*/2 * * * *', async () => {
         console.error('Error in scheduled wallet balance update:', error);
     }
 });
-
-// Setup blockchain event listeners
+// // Setup blockchain event listeners
 setupBlockchainListeners().catch(error => {
     console.error('Error setting up blockchain listeners:', error);
 });

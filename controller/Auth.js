@@ -5,6 +5,8 @@ require("dotenv").config();
 
 // signup router handler
 exports.signUp = async(req, res) => {
+    console.log("++++++++++++>===========>body:", req.body);
+    console.log("++++++++++++>===========>headers:", req.headers);
     try {
         const { email, username, password } = req.body;
         // if user already exist
@@ -48,6 +50,9 @@ exports.signUp = async(req, res) => {
 
 //login handler
 exports.login = async(req, res) => {
+    console.log("++++++++++++>===========>body:", req.body);
+    console.log("++++++++++++>===========>headers:", req.headers);
+
     try {
         //fetch data
         const { email, password } = req.body;
@@ -78,7 +83,7 @@ exports.login = async(req, res) => {
         if (await bcrypt.compare(password, existingUser.password)) {
             //create jwt token
             let token = jwt.sign(payload, process.env.JWT_SECRET || "martin", {
-                expiresIn: "7d",
+                expiresIn: "1min",
             });
             const userObject = existingUser.toObject();
 
