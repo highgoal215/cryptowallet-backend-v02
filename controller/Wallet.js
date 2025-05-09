@@ -550,3 +550,71 @@ exports.getAllWallets = async(req, res) => {
         });
     }
 };
+
+exports.updateWalletBalance = async (req, res) => {
+    try {
+        const { address } = req.body;
+
+        if (!address) {
+            return res.status(400).json({
+                success: false,
+                message: "Wallet address is required"
+            });
+        }
+
+        // Find the wallet
+        const wallet = await Wallet.findOne({ address });
+        if (!wallet) {
+            return res.status(404).json({
+                success: false,
+                message: "Wallet not found"
+            });
+        }
+
+        let currentBalance;
+        if (wallet.addressType === 'ethereum') {
+            const provider = new ethers.JsonRpcProvider(
+                `https://eth-sepolia.g.alchemy.com/v2/fDVyRKUELxC6pGpxxG2M7eVc7ErbTI4t`
+            );
+            const balanceInWei = await provider.getBalance(address);
+            currentBalance = parseFloat(ethers.formatEther(balanceInWei));
+        } else if (wallet.addressType === 'tron') {
+            const fullNode = "https://api.shasta.trongrid.io";
+            const eventServer = "https://api.shasta.trongrid.io";
+            const tronWeb = new TronWeb({
+                fullHost: fullNode,
+                eventServer: eventServer
+            });
+            const balanceInSun = await tronWeb.trx.getBalance(address);
+            currentBalance = balanceInSun / 1e6; // Convert from SUN to TRX
+        } else {
+            return res.status(400).json({
+                success: false,
+                message: "Unsupported wallet type"
+            });
+        }
+
+        // Update the wallet balance
+        wallet.balance = currentBalance;
+        wallet.lastUpdated = new Date();
+        await wallet.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Wallet balance updated successfully",
+            wallet: {
+                address: wallet.address,
+                addressType: wallet.addressType,
+                balance: wallet.balance,
+                lastUpdated: wallet.lastUpdated
+            }
+        });
+    } catch (error) {
+        console.error("Error updating wallet balance:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to update wallet balance",
+            error: error.message
+        });
+    }
+};
