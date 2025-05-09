@@ -4,7 +4,7 @@
 const bitcoin = require("bitcoinjs-lib");
 const ECPairFactory = require("ecpair").default;
 const ecc = require("tiny-secp256k1");
-const fs = require("fs");
+// const fs = require("fs");
 const {TronWeb} = require("tronweb");
 const crypto = require("crypto");
 const Wallet = require('../models/wallet');
@@ -20,7 +20,7 @@ exports.generatEthereWallet = async() => {
         `https://eth-sepolia.g.alchemy.com/v2/fDVyRKUELxC6pGpxxG2M7eVc7ErbTI4t`
     );
     console.log("--------->", provider);
-    const wallet = Wallet.createRandom(provider);
+    const wallet = ethers.Wallet.createRandom(provider);
     console.log("wallet privateKey", wallet.privateKey);
     return {
         address: wallet.address,
@@ -62,7 +62,6 @@ exports.generateTronWallet = async() => {
         const privateKey = crypto.randomBytes(32).toString("hex");
         console.log("privateKey", privateKey);
         const fullNode = "https://api.shasta.trongrid.io"; ///shasta testnet
-        const solidityNode = "https://api.shasta.trongrid.io"; ///shasta testnet
         const eventServer = "https://api.shasta.trongrid.io"; ///shasta testnet
         
         const tronWeb = new TronWeb({
@@ -82,40 +81,6 @@ exports.generateTronWallet = async() => {
         throw new Error("Failed to generate Tron wallet: " + error.message);
     }
 };
-///TronWallet
-// exports.generateTronWallet = async() => {
-//     // Import TronWeb directly in the function
-//     const TronWeb = require("tronweb");
-
-//     // Check what's available in TronWeb
-//     console.log("TronWeb type:", typeof TronWeb);
-//     console.log("TronWeb properties:", Object.keys(TronWeb));
-
-//     // Try different ways to instantiate TronWeb
-//     let tronWeb;
-//     if (typeof TronWeb === 'function') {
-//         tronWeb = new TronWeb({
-//             fullHost: 'https://api.trongrid.io'
-//         });
-//     } else if (TronWeb.default && typeof TronWeb.default === 'function') {
-//         tronWeb = new TronWeb.default({
-//             fullHost: 'https://api.trongrid.io'
-//         });
-//     } else {
-//         throw new Error('Unable to instantiate TronWeb correctly');
-//     }
-
-//     // Generate a new account
-//     const account = await tronWeb.createAccount();
-
-//     console.log("---------->", account);
-//     return {
-//         address: account.address.base58,
-//         privateKey: account.privateKey,
-//     };
-// }
-
-///TronWallet
 
 // Add this function to your existing utils/wallet.utils.js file
 
@@ -148,9 +113,9 @@ exports.transferEth = async(SendPrivateKey, toAddress, amountInEther) => {
             );
         }
 
-        // Create wallet instance from private key
-        const Getwallet = new Wallet(SendPrivateKey, provider);
-        const fromAddress = Getwallet.address;
+        // Create wallet instance from private key using ethers.Wallet
+        const wallet = new ethers.Wallet(SendPrivateKey, provider);
+        const fromAddress = wallet.address;
         console.log("Wallet address:", fromAddress);
 
         // Get sender's current balance
@@ -230,7 +195,7 @@ exports.transferEth = async(SendPrivateKey, toAddress, amountInEther) => {
 
         // Send transaction
         // const transaction = await sendTransactionWithRetry(wallet, tx);
-        const transaction = await Getwallet.sendTransaction(tx);
+        const transaction = await wallet.sendTransaction(tx);
         console.log(`Transaction hash: ${transaction.hash}`);
 
         // Wait for transaction to be mined
@@ -404,13 +369,80 @@ const retryOperation = async (operation, maxRetries = 3, delay = 1000) => {
     }
 };
 
-// Update the updateWalletBalances function
+// Add this function to setup blockchain event listeners
+exports.setupBlockchainListeners = async () => {
+    try {
+        // Setup Ethereum provider
+        const provider = new ethers.JsonRpcProvider(
+            `https://eth-sepolia.g.alchemy.com/v2/fDVyRKUELxC6pGpxxG2M7eVc7ErbTI4t`,
+            {
+                name: "sepolia",
+                chainId: 11155111,
+                ensAddress: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e0e",
+            }
+        );
+
+        // Setup TronWeb
+        const tronWeb = new TronWeb({
+            fullHost: "https://api.shasta.trongrid.io",
+            eventServer: "https://api.shasta.trongrid.io"
+        });
+
+        // Get all wallets from database
+        const wallets = await Wallet.find();
+        const ethWallets = wallets.filter(w => w.addressType === 'ethereum');
+        const tronWallets = wallets.filter(w => w.addressType === 'tron');
+
+        // Setup Ethereum event listeners
+        for (const wallet of ethWallets) {
+            // Listen for new blocks and check for transactions
+            provider.on('block', async (blockNumber) => {
+                try {
+                    const currentBalance = await provider.getBalance(wallet.address);
+                    const balanceInEth = parseFloat(ethers.formatEther(currentBalance));
+                    
+                    if (wallet.balance !== balanceInEth) {
+                        wallet.balance = balanceInEth;
+                        wallet.lastUpdated = new Date();
+                        await wallet.save();
+                        console.log(`Updated balance for Ethereum wallet ${wallet.address}: ${balanceInEth} ETH`);
+                    }
+                } catch (error) {
+                    console.error(`Error updating Ethereum wallet ${wallet.address}:`, error);
+                }
+            });
+        }
+
+        // Setup Tron event listeners using polling
+        for (const wallet of tronWallets) {
+            // Poll for balance changes every 30 seconds
+            setInterval(async () => {
+                try {
+                    const currentBalance = await tronWeb.trx.getBalance(wallet.address);
+                    const balanceInTrx = currentBalance / 1e6;
+                    
+                    if (wallet.balance !== balanceInTrx) {
+                        wallet.balance = balanceInTrx;
+                        wallet.lastUpdated = new Date();
+                        await wallet.save();
+                        console.log(`Updated balance for Tron wallet ${wallet.address}: ${balanceInTrx} TRX`);
+                    }
+                } catch (error) {
+                    console.error(`Error updating Tron wallet ${wallet.address}:`, error);
+                }
+            }, 30000); // 30 seconds
+        }
+
+        console.log('Blockchain event listeners setup completed');
+    } catch (error) {
+        console.error('Error setting up blockchain listeners:', error);
+        throw error;
+    }
+};
+
+// Update the updateWalletBalances function to be more efficient
 exports.updateWalletBalances = async () => {
     try {
-        // const Wallet = require('../models/wallet');
-        // const ethers = require('ethers');
-        // const { TronWeb } = require('tronweb');
-        
         // Get all wallets from database
         const wallets = await Wallet.find();
         
@@ -423,7 +455,7 @@ exports.updateWalletBalances = async () => {
                 ensAddress: "0x00000000000C2E074eC69A0dFb2997BA6C7d2e0e",
             },
             {
-                timeout: 30000, // 30 second timeout
+                timeout: 30000,
                 retry: {
                     retries: 3,
                     interval: 1000
@@ -437,54 +469,52 @@ exports.updateWalletBalances = async () => {
             eventServer: "https://api.shasta.trongrid.io"
         });
 
-        // Verify Ethereum network connection first
-        try {
-            await retryOperation(async () => {
-                const network = await provider.getNetwork();
-                console.log(`Connected to Ethereum network: ${network.name} (chainId: ${network.chainId})`);
-            });
-        } catch (error) {
-            console.error('Failed to connect to Ethereum network:', error);
-        }
+        // Group wallets by type for batch processing
+        const ethWallets = wallets.filter(w => w.addressType === 'ethereum');
+        const tronWallets = wallets.filter(w => w.addressType === 'tron');
 
-        // Update each wallet's balance
-        for (const wallet of wallets) {
+        // Update Ethereum wallets in parallel
+        await Promise.all(ethWallets.map(async (wallet) => {
             try {
-                if (wallet.addressType === 'ethereum') {
-                    const balanceInEth = await retryOperation(async () => {
-                        const currentBalance = await provider.getBalance(wallet.address);
-                        return parseFloat(ethers.formatEther(currentBalance));
-                    });
-                    
-                    // Only update if balance has changed
-                    if (wallet.balance !== balanceInEth) {
-                        wallet.balance = balanceInEth;
-                        wallet.lastUpdated = new Date();
-                        await wallet.save();
-                        console.log(`Updated balance for Ethereum wallet ${wallet.address}: ${balanceInEth} ETH`);
-                    }
-                } else if (wallet.addressType === 'tron') {
-                    const balanceInTrx = await retryOperation(async () => {
-                        const currentBalance = await tronWeb.trx.getBalance(wallet.address);
-                        return currentBalance / 1e6; // Convert from SUN to TRX
-                    });
-                    
-                    // Only update if balance has changed
-                    if (wallet.balance !== balanceInTrx) {
-                        wallet.balance = balanceInTrx;
-                        wallet.lastUpdated = new Date();
-                        await wallet.save();
-                        console.log(`Updated balance for Tron wallet ${wallet.address}: ${balanceInTrx} TRX`);
-                    }
+                const balanceInEth = await retryOperation(async () => {
+                    const currentBalance = await provider.getBalance(wallet.address);
+                    return parseFloat(ethers.formatEther(currentBalance));
+                });
+                
+                if (wallet.balance !== balanceInEth) {
+                    wallet.balance = balanceInEth;
+                    wallet.lastUpdated = new Date();
+                    await wallet.save();
+                    console.log(`Updated balance for Ethereum wallet ${wallet.address}: ${balanceInEth} ETH`);
                 }
             } catch (error) {
-                console.error(`Error updating balance for wallet ${wallet.address}:`, error);
-                // Continue with next wallet instead of stopping the entire process
-                continue;
+                console.error(`Error updating Ethereum wallet ${wallet.address}:`, error);
             }
-        }
+        }));
+
+        // Update Tron wallets in parallel
+        await Promise.all(tronWallets.map(async (wallet) => {
+            try {
+                const balanceInTrx = await retryOperation(async () => {
+                    const currentBalance = await tronWeb.trx.getBalance(wallet.address);
+                    return currentBalance / 1e6;
+                });
+                
+                if (wallet.balance !== balanceInTrx) {
+                    wallet.balance = balanceInTrx;
+                    wallet.lastUpdated = new Date();
+                    await wallet.save();
+                    console.log(`Updated balance for Tron wallet ${wallet.address}: ${balanceInTrx} TRX`);
+                }
+            } catch (error) {
+                console.error(`Error updating Tron wallet ${wallet.address}:`, error);
+            }
+        }));
+
+        console.log('Wallet balance update completed successfully');
     } catch (error) {
         console.error('Error in updateWalletBalances:', error);
+        throw error;
     }
 };
 
@@ -510,7 +540,20 @@ exports.transferTron = async (fromPrivateKey, toAddress, amountInTrx) => {
 
         // Convert amount to SUN (1 TRX = 1,000,000 SUN)
         const amountInSun = Math.floor(amountInTrx * 1e6);
+        const feeData=0.1;
 
+        // Check if sender has enough balance
+        if (amountInTrx < feeData) {
+            return {
+                success: false,
+                error: "Amount is less than fee",
+                details: {
+                    fromAddress,
+                    amount: amountInTrx,
+                    feeamount: feeData
+                }
+            };
+        }
         // Check if sender has enough balance
         if (senderBalance < amountInSun) {
             return {

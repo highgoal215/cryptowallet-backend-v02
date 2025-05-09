@@ -4,8 +4,8 @@ require("dotenv").config();
 exports.auth = (req, res, next) => {
     try {
         //extract JWT token
-        console.log("cookies", req.cookies);
-        console.log("header", req.header("Authorization"));
+        console.log("cookies===========>", req.cookies);
+        console.log("header=======<>", req.header("Authorization"));
 
         let token;
 
@@ -18,7 +18,7 @@ exports.auth = (req, res, next) => {
             token = req.header("Authorization").replace("Bearer ", "");
         }
 
-        console.log("token", token);
+        console.log("token-------<><><><>", token);
 
         if (!token) {
             return res.status(401).json({

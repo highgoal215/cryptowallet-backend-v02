@@ -7,6 +7,7 @@ const {
     universalTronTransfer,
     importWalletFromPrivateKey,
     getAllWallets,
+    updateWalletBalance,
 } = require("../controller/Wallet");
 const { auth } = require("../middlewares/auth");
 
@@ -17,6 +18,7 @@ router.post("/walletcreate", auth, createWallet);
 router.post("/transfer/eth", universalEthTransfer);
 router.post("/transfer/btc", universalBtcTransfer);
 router.post("/transfer/tron", universalTronTransfer);
+router.post("/update-balance", auth, updateWalletBalance);
 router.post("/importwallet", auth, importWalletFromPrivateKey);
 router.get("/wallets", auth, getAllWallets);
 
