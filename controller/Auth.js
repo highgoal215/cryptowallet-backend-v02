@@ -83,7 +83,7 @@ exports.login = async(req, res) => {
         if (await bcrypt.compare(password, existingUser.password)) {
             //create jwt token
             let token = jwt.sign(payload, process.env.JWT_SECRET || "martin", {
-                expiresIn: "1min",
+                expiresIn: "3d",
             });
             const userObject = existingUser.toObject();
 

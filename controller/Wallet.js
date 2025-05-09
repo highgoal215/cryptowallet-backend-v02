@@ -527,6 +527,7 @@ exports.getAllWallets = async(req, res) => {
     try {
         // Get user ID from auth middleware
         const userId = req.userId;
+        console.log("getallwallets++++++++++++>===========>userId:", userId);
         if (!userId) {
             return res.status(401).json({
                 success: false,
