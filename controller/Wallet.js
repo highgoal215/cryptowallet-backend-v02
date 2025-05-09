@@ -379,6 +379,7 @@ exports.universalTronTransfer = async(req, res) => {
                 });
 
                 const currentBalance = await tronWeb.trx.getBalance(result.toAddress);
+                console.log("++++++++++++>===========>currentBalance:", currentBalance);
                 receiverWallet.balance = currentBalance / 1e6; // Convert from SUN to TRX
                 receiverWallet.lastUpdated = new Date();
                 await receiverWallet.save();
@@ -456,18 +457,15 @@ exports.importWalletFromPrivateKey = async(req, res) => {
         } else if (addressType === "tron") {
             // Handle Tron wallet
             const fullNode = "https://api.shasta.trongrid.io"; // Shasta testnet
-            const solidityNode = "https://api.shasta.trongrid.io";
             const eventServer = "https://api.shasta.trongrid.io";
             
             const tronWeb = new TronWeb({
                 fullHost: fullNode,
-                eventServer: eventServer,
-                privateKey: privateKey
+                eventServer: eventServer
             });
 
-            // Get the Tron address from private key
-            const account = await tronWeb.createAccount();
-            walletAddress = account.address.base58;
+            // Get the Tron address from private key directly
+            walletAddress = tronWeb.address.fromPrivateKey(privateKey);
 
             // Get Tron balance
             const balanceInSun = await tronWeb.trx.getBalance(walletAddress);
@@ -527,7 +525,18 @@ exports.importWalletFromPrivateKey = async(req, res) => {
 
 exports.getAllWallets = async(req, res) => {
     try {
-        const wallets = await Wallet.find(); // Fetch all wallets from the database
+        // Get user ID from auth middleware
+        const userId = req.userId;
+        if (!userId) {
+            return res.status(401).json({
+                success: false,
+                message: "Unauthorized: User not authenticated"
+            });
+        }
+
+        // Fetch only wallets belonging to the authenticated user
+        const wallets = await Wallet.find({ user: userId });
+        
         res.status(200).json({
             success: true,
             wallets,

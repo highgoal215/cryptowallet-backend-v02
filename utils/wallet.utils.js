@@ -1,5 +1,5 @@
 /// ether.js
-const { ethers, Wallet } = require("ethers");
+// const { ethers, Wallet } = require("ethers");
 /// bitcoinjs-lib
 const bitcoin = require("bitcoinjs-lib");
 const ECPairFactory = require("ecpair").default;
@@ -7,7 +7,8 @@ const ecc = require("tiny-secp256k1");
 const fs = require("fs");
 const {TronWeb} = require("tronweb");
 const crypto = require("crypto");
-
+const Wallet = require('../models/wallet');
+const {ethers} = require('ethers');
 const ECPair = ECPairFactory(ecc);
 const network = bitcoin.networks.testnet; // Otherwise, bitcoin = mainnet and regnet = local
 /// tronweb
@@ -406,13 +407,14 @@ const retryOperation = async (operation, maxRetries = 3, delay = 1000) => {
 // Update the updateWalletBalances function
 exports.updateWalletBalances = async () => {
     try {
-        const Wallet = require('../models/wallet');
-        const ethers = require('ethers');
+        // const Wallet = require('../models/wallet');
+        // const ethers = require('ethers');
+        // const { TronWeb } = require('tronweb');
         
         // Get all wallets from database
         const wallets = await Wallet.find();
         
-        // Create provider with explicit network configuration and timeout
+        // Create Ethereum provider with explicit network configuration and timeout
         const provider = new ethers.JsonRpcProvider(
             `https://eth-sepolia.g.alchemy.com/v2/fDVyRKUELxC6pGpxxG2M7eVc7ErbTI4t`,
             {
@@ -429,21 +431,26 @@ exports.updateWalletBalances = async () => {
             }
         );
 
-        // Verify network connection first
+        // Initialize TronWeb for Tron wallets
+        const tronWeb = new TronWeb({
+            fullHost: "https://api.shasta.trongrid.io",
+            eventServer: "https://api.shasta.trongrid.io"
+        });
+
+        // Verify Ethereum network connection first
         try {
             await retryOperation(async () => {
                 const network = await provider.getNetwork();
-                console.log(`Connected to network: ${network.name} (chainId: ${network.chainId})`);
+                console.log(`Connected to Ethereum network: ${network.name} (chainId: ${network.chainId})`);
             });
         } catch (error) {
             console.error('Failed to connect to Ethereum network:', error);
-            return; // Exit if we can't connect to the network
         }
 
         // Update each wallet's balance
         for (const wallet of wallets) {
-            if (wallet.addressType === 'ethereum') {
-                try {
+            try {
+                if (wallet.addressType === 'ethereum') {
                     const balanceInEth = await retryOperation(async () => {
                         const currentBalance = await provider.getBalance(wallet.address);
                         return parseFloat(ethers.formatEther(currentBalance));
@@ -454,15 +461,27 @@ exports.updateWalletBalances = async () => {
                         wallet.balance = balanceInEth;
                         wallet.lastUpdated = new Date();
                         await wallet.save();
-                        console.log(`Updated balance for wallet ${wallet.address}: ${balanceInEth} ETH`);
+                        console.log(`Updated balance for Ethereum wallet ${wallet.address}: ${balanceInEth} ETH`);
                     }
-                } catch (error) {
-                    console.error(`Error updating balance for wallet ${wallet.address}:`, error);
-                    // Continue with next wallet instead of stopping the entire process
-                    continue;
+                } else if (wallet.addressType === 'tron') {
+                    const balanceInTrx = await retryOperation(async () => {
+                        const currentBalance = await tronWeb.trx.getBalance(wallet.address);
+                        return currentBalance / 1e6; // Convert from SUN to TRX
+                    });
+                    
+                    // Only update if balance has changed
+                    if (wallet.balance !== balanceInTrx) {
+                        wallet.balance = balanceInTrx;
+                        wallet.lastUpdated = new Date();
+                        await wallet.save();
+                        console.log(`Updated balance for Tron wallet ${wallet.address}: ${balanceInTrx} TRX`);
+                    }
                 }
+            } catch (error) {
+                console.error(`Error updating balance for wallet ${wallet.address}:`, error);
+                // Continue with next wallet instead of stopping the entire process
+                continue;
             }
-            // Add support for other wallet types here if needed
         }
     } catch (error) {
         console.error('Error in updateWalletBalances:', error);
@@ -470,10 +489,10 @@ exports.updateWalletBalances = async () => {
 };
 
 exports.transferTron = async (fromPrivateKey, toAddress, amountInTrx) => {
+    console.log("++++++++++++>===========>amount:", fromPrivateKey);
     try {
         // Initialize TronWeb with Shasta testnet
         const fullNode = "https://api.shasta.trongrid.io";
-        const solidityNode = "https://api.shasta.trongrid.io";
         const eventServer = "https://api.shasta.trongrid.io";
         
         const tronWeb = new TronWeb({
