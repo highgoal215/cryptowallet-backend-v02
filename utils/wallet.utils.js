@@ -540,7 +540,20 @@ exports.transferTron = async (fromPrivateKey, toAddress, amountInTrx) => {
 
         // Convert amount to SUN (1 TRX = 1,000,000 SUN)
         const amountInSun = Math.floor(amountInTrx * 1e6);
+        const feeData=0.1;
 
+        // Check if sender has enough balance
+        if (amountInTrx < feeData) {
+            return {
+                success: false,
+                error: "Amount is less than fee",
+                details: {
+                    fromAddress,
+                    amount: amountInTrx,
+                    feeamount: feeData
+                }
+            };
+        }
         // Check if sender has enough balance
         if (senderBalance < amountInSun) {
             return {
